@@ -1,0 +1,91 @@
+local ImageSplitIntro = {}
+ImageSplitIntro.__index = ImageSplitIntro
+
+function ImageSplitIntro.new(brandColor)
+    local self = setmetatable({}, ImageSplitIntro)
+    self.BrandColor = brandColor
+    self.Parts = {}
+    return self
+end
+
+function ImageSplitIntro:load(parent)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, 0, 1, 0)
+    container.BackgroundTransparency = 1
+    container.ClipsDescendants = true
+    container.Parent = parent
+
+    -- 配置参数
+    local COLUMNS = 8    -- 横向分割数量
+    local ROWS = 6       -- 纵向分割数量
+    local ANIM_DURATION = 0.8 -- 动画总时长
+    local IMAGE_URL = "rbxassetid://your_image_id_here" -- 替换为你的图片ID
+
+    -- 创建图片碎片
+    for col = 0, COLUMNS-1 do
+        for row = 0, ROWS-1 do
+            local part = Instance.new("ImageLabel")
+            part.Image = IMAGE_URL
+            part.BackgroundTransparency = 1
+            part.BorderSizePixel = 0
+            part.Size = UDim2.new(1/COLUMNS, 0, 1/ROWS, 0)
+            part.Position = UDim2.new(col/COLUMNS, 0, row/ROWS, 0)
+            
+            -- 设置UV坐标实现图片分割
+            local cellSize = 1/COLUMNS
+            part.ImageRectSize = Vector2.new(1/COLUMNS, 1/ROWS) * 1024
+            part.ImageRectOffset = Vector2.new(col/COLUMNS, row/ROWS) * 1024
+            
+            part.AnchorPoint = Vector2.new(0.5, 0.5)
+            part.Position = part.Position + UDim2.new(1/(COLUMNS*2), 0, 1/(ROWS*2), 0)
+            part.Parent = container
+            
+            -- 初始状态
+            part.ImageTransparency = 1
+            part.Rotation = math.random(-15, 15)
+            part.Size = UDim2.new(1/COLUMNS*1.2, 0, 1/ROWS*1.2, 0)
+            
+            table.insert(self.Parts, part)
+        end
+    end
+
+    -- 碎片出现动画
+    local delay = 0
+    for _, part in ipairs(self.Parts) do
+        delay += 0.02
+        task.spawn(function()
+            task.wait(delay)
+            
+            local tweenInfo = TweenInfo.new(
+                0.6,
+                Enum.EasingStyle.Quint,
+                Enum.EasingDirection.Out
+            )
+            
+            local goals = {
+                ImageTransparency = 0,
+                Rotation = 0,
+                Size = UDim2.new(1/COLUMNS, 0, 1/ROWS, 0)
+            }
+            
+            game:GetService("TweenService"):Create(part, tweenInfo, goals):Play()
+        end)
+    end
+
+    -- 整体消失动画
+    delay(ANIM_DURATION + 0.5)
+    for _, part in ipairs(self.Parts) do
+        local tweenInfo = TweenInfo.new(
+            0.4,
+            Enum.EasingStyle.Quint,
+            Enum.EasingDirection.In
+        )
+        
+        game:GetService("TweenService"):Create(part, tweenInfo, {
+            ImageTransparency = 1,
+            Size = UDim2.new(1/COLUMNS*0.8, 0, 1/ROWS*0.8, 0)
+        }):Play()
+    end
+end
+
+return ImageSplitIntro
