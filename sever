@@ -1,1 +1,627 @@
+local SansHubLib = {}
+local Players = game:GetService("Players")
+local PlayerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
+-- 初始化颜色主题
+local colors = {
+    ["DarkTheme"] = {
+        Main = Color3.fromRGB(20, 20, 20),
+        Secondary = Color3.fromRGB(30, 30, 30),
+        Accent = Color3.fromRGB(0, 255, 255),
+        Text = Color3.fromRGB(240, 240, 240)
+    }
+}
+local currentTheme = colors.DarkTheme
+
+-- 创建主GUI容器
+local ScreenGui = Instance.new("ScreenGui", PlayerGui)
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- 快捷按钮容器
+local quickToggleContainer = Instance.new("Frame", ScreenGui)
+quickToggleContainer.Size = UDim2.new(1, 0, 1, 0)
+quickToggleContainer.BackgroundTransparency = 1
+quickToggleContainer.ZIndex = 50
+
+-- 快捷按钮状态表
+local activeQuickToggles = {}
+
+-- 粒子效果池
+local ANIM_DURATION = 0.8
+local PARTICLE_COUNT = 15
+local PARTICLE_SIZE = 8
+local particlePool = {}
+
+for i = 1, 50 do
+    local particle = Instance.new("Frame")
+    particle.BackgroundColor3 = currentTheme.Accent
+    particle.Size = UDim2.new(0, PARTICLE_SIZE, 0, PARTICLE_SIZE)
+    particle.Visible = false
+    particle.ZIndex = 100
+    Instance.new("UICorner", particle).CornerRadius = UDim.new(1, 0)
+    particle.Parent = ScreenGui
+    table.insert(particlePool, particle)
+end
+
+local function getParticle()
+    for _, p in ipairs(particlePool) do
+        if not p.Visible then
+            p.Visible = true
+            return p
+        end
+    end
+    return nil
+end
+
+local function playParticleEffect(startPos, endPos)
+    for _ = 1, PARTICLE_COUNT do
+        local p = getParticle()
+        if p then
+            p.Position = startPos
+            local randomOffset = UDim2.new(
+                (math.random() - 0.5) * 0.2,
+                0,
+                (math.random() - 0.5) * 0.2,
+                0
+            )
+            local tweenInfo = TweenInfo.new(ANIM_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            local tween = TweenService:Create(p, tweenInfo, {
+                Position = endPos + randomOffset,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(0, 0, 0, 0)
+            })
+            tween:Play()
+            tween.Completed:Connect(function()
+                p.Visible = false
+                p.BackgroundTransparency = 0
+                p.Size = UDim2.new(0, PARTICLE_SIZE, 0, PARTICLE_SIZE)
+            })
+        end
+    end
+end
+
+-- 数组列表框架
+local arrayListFrame = Instance.new("Frame", ScreenGui)
+arrayListFrame.Size = UDim2.new(0.2, 0, 1, 0)
+arrayListFrame.Position = UDim2.new(1, 0, 0, 0)
+arrayListFrame.AnchorPoint = Vector2.new(1, 0)
+arrayListFrame.BackgroundTransparency = 1
+
+local listLayout = Instance.new("UIListLayout", arrayListFrame)
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+listLayout.Padding = UDim.new(0, 5)
+listLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+
+local arrayItems = {}
+local colorPhase = 0
+
+RunService.Heartbeat:Connect(function()
+    local viewportSize = workspace.CurrentCamera.ViewportSize
+    arrayListFrame.Position = UDim2.new(1, -math.clamp(viewportSize.X * 0.01, 5, 15), 0, math.clamp(viewportSize.Y * 0.01, 5, 15))
+end)
+
+task.spawn(function()
+    while true do
+        colorPhase = (colorPhase + 0.015) % 1
+        local lerpValue = math.sin(colorPhase * math.pi * 2) * 0.5 + 0.5
+        for _, item in pairs(arrayItems) do
+            if item and item.Text then
+                item.TextColor3 = currentTheme.Accent:Lerp(Color3.new(1,1,1), lerpValue)
+            end
+        end
+        task.wait(0.03)
+    end
+end)
+
+local arraylist = {
+    Create = function(text)
+        for _, item in pairs(arrayItems) do
+            if item.Text == "▶ "..text then
+                return
+            end
+        end
+        local item = Instance.new("TextLabel", arrayListFrame)
+        item.Text = "▶ "..text
+        item.Font = Enum.Font.GothamBold
+        item.TextSize = 14
+        item.Size = UDim2.new(0, game.TextService:GetTextSize(text, 14, Enum.Font.GothamBold, Vector2.new(0,0)).X + 25, 0, 18)
+        item.BackgroundTransparency = 1
+        item.TextColor3 = currentTheme.Accent
+        item.TextXAlignment = Enum.TextXAlignment.Right
+        table.insert(arrayItems, item)
+        table.sort(arrayItems, function(a,b) return a.Text > b.Text end)
+        for i,v in ipairs(arrayItems) do v.LayoutOrder = i end
+    end,
+    Remove = function(text)
+        for i = #arrayItems, 1, -1 do
+            if arrayItems[i].Text == "▶ "..text then
+                arrayItems[i]:Destroy()
+                table.remove(arrayItems, i)
+            end
+        end
+    end
+}
+
+-- 快捷按钮创建函数
+local function createQuickToggle(config, originBtn)
+    if activeQuickToggles[config.Name] then
+        activeQuickToggles[config.Name].Button:Destroy()
+    end
+
+    local quickBtn = Instance.new("TextButton")
+    quickBtn.Name = "QuickToggle_"..config.Name
+    quickBtn.Size = UDim2.new(0, 100, 0, 30)
+    quickBtn.Position = UDim2.new(0.5, math.random(-200, 200), 0.5, math.random(-200, 200))
+    quickBtn.Text = config.Name
+    quickBtn.Font = Enum.Font.GothamBold
+    quickBtn.TextSize = 12
+    quickBtn.BackgroundColor3 = currentTheme.Secondary
+    quickBtn.TextColor3 = currentTheme.Text
+    quickBtn.Parent = quickToggleContainer
+    quickBtn.ZIndex = 60
+
+    local indicator = Instance.new("Frame")
+    indicator.Size = UDim2.new(0.2, 0, 0.2, 0)
+    indicator.Position = UDim2.new(0.78, 0, 0.1, 0)
+    indicator.BackgroundColor3 = currentTheme.Accent
+    indicator.Visible = config.GetState()
+    indicator.Parent = quickBtn
+    Instance.new("UICorner", indicator).CornerRadius = UDim.new(1)
+
+    local function updateState(newState)
+        config.Callback(newState)
+        indicator.Visible = newState
+        if originBtn and originBtn.Parent then
+            local mainIndicator = originBtn.Parent:FindFirstChildOfClass("Frame")
+            if mainIndicator then
+                mainIndicator.Visible = newState
+            end
+        end
+    end
+
+    quickBtn.MouseButton1Click:Connect(function()
+        updateState(not config.GetState())
+    end)
+
+    local dragStartPosition, dragStartOffset
+    quickBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragStartPosition = quickBtn.AbsolutePosition
+            dragStartOffset = dragStartPosition - Vector2.new(input.Position.X, input.Position.Y)
+        end
+    end)
+
+    quickBtn.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement and dragStartPosition then
+            local newPos = Vector2.new(input.Position.X, input.Position.Y) + dragStartOffset
+            quickBtn.Position = UDim2.new(
+                0, newPos.X,
+                0, newPos.Y
+            )
+        end
+    end)
+
+    quickBtn.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragStartPosition = nil
+        end
+    end)
+
+    activeQuickToggles[config.Name] = {
+        Button = quickBtn,
+        Destroy = function()
+            quickBtn:Destroy()
+            activeQuickToggles[config.Name] = nil
+        end
+    }
+end
+
+function SansHubLib:CreateSansHub(name)
+    local SansHub = {}
+    SansHub.Tabs = {}
+    local uiVisible = true
+
+    local mainFrame = Instance.new("Frame", ScreenGui)
+    mainFrame.Size = UDim2.new(0.4, 0, 0.6, 0)
+    mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+    mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    mainFrame.BackgroundColor3 = currentTheme.Main
+    mainFrame.ClipsDescendants = true
+    mainFrame.Visible = false
+
+    local created = false
+    task.spawn(function()
+        mainFrame.Size = UDim2.new(0,0,0,0)
+        mainFrame.Visible = true
+        local openTween = TweenService:Create(mainFrame, TweenInfo.new(0.5), {
+            Size = UDim2.new(0.4,0,0.6,0)
+        })
+        openTween:Play()
+        created = true
+    end)
+
+    local titleBar = Instance.new("Frame", mainFrame)
+    titleBar.Size = UDim2.new(1, 0, 0.1, 0)
+    titleBar.BackgroundColor3 = currentTheme.Secondary
+
+    local titleText = Instance.new("TextLabel", titleBar)
+    titleText.Text = "   "..name
+    titleText.Font = Enum.Font.GothamBold
+    titleText.TextColor3 = currentTheme.Text
+    titleText.TextSize = 18
+    titleText.TextXAlignment = Enum.TextXAlignment.Left
+    titleText.Size = UDim2.new(0.7, 0, 1, 0)
+
+    local controlContainer = Instance.new("Frame", titleBar)
+    controlContainer.Size = UDim2.new(0.3, 0, 1, 0)
+    controlContainer.Position = UDim2.new(0.7, 0, 0, 0)
+    controlContainer.BackgroundTransparency = 1
+
+    local hideButton = Instance.new("TextButton", controlContainer)
+    hideButton.Text = "-"
+    hideButton.TextColor3 = currentTheme.Text
+    hideButton.Size = UDim2.new(0.3, 0, 1, 0)
+    hideButton.Position = UDim2.new(0.4, 0, 0, 0)
+    hideButton.BackgroundTransparency = 1
+
+    local closeButton = Instance.new("TextButton", controlContainer)
+    closeButton.Text = "×"
+    closeButton.TextColor3 = currentTheme.Text
+    closeButton.Size = UDim2.new(0.3, 0, 1, 0)
+    closeButton.Position = UDim2.new(0.7, 0, 0, 0)
+    closeButton.BackgroundTransparency = 1
+
+    local restoreButton = Instance.new("TextButton", ScreenGui)
+    restoreButton.Text = "SansHub"
+    restoreButton.Font = Enum.Font.GothamBold
+    restoreButton.TextSize = 14
+    restoreButton.TextColor3 = currentTheme.Text
+    restoreButton.Size = UDim2.new(0, 80, 0, 30)
+    restoreButton.Position = UDim2.new(0, 10, 0, 10)
+    restoreButton.BackgroundColor3 = currentTheme.Secondary
+    restoreButton.Visible = false
+    restoreButton.ZIndex = 10
+
+    hideButton.MouseButton1Click:Connect(function()
+        if not created then return end
+        local closeTween = TweenService:Create(mainFrame, TweenInfo.new(0.3), {
+            Size = UDim2.new(0,0,0,0)
+        })
+        local centerPos = mainFrame.AbsolutePosition + mainFrame.AbsoluteSize/2
+        local targetPos = restoreButton.AbsolutePosition + restoreButton.AbsoluteSize/2
+        playParticleEffect(UDim2.new(0, centerPos.X, 0, centerPos.Y), UDim2.new(0, targetPos.X, 0, targetPos.Y))
+        closeTween:Play()
+        closeTween.Completed:Wait()
+        mainFrame.Visible = false
+        restoreButton.Visible = true
+    end)
+
+    restoreButton.MouseButton1Click:Connect(function()
+        restoreButton.Visible = false
+        mainFrame.Visible = true
+        local centerPos = restoreButton.AbsolutePosition + restoreButton.AbsoluteSize/2
+        local targetPos = mainFrame.AbsolutePosition + mainFrame.AbsoluteSize/2
+        playParticleEffect(UDim2.new(0, centerPos.X, 0, centerPos.Y), UDim2.new(0, targetPos.X, 0, targetPos.Y))
+        local openTween = TweenService:Create(mainFrame, TweenInfo.new(0.5), {
+            Size = UDim2.new(0.4,0,0.6,0)
+        })
+        openTween:Play()
+    end)
+
+    closeButton.MouseButton1Click:Connect(function()
+        local confirmFrame = Instance.new("Frame", ScreenGui)
+        confirmFrame.Size = UDim2.new(0, 200, 0, 100)
+        confirmFrame.Position = UDim2.new(0.5, -100, 0.5, -50)
+        confirmFrame.BackgroundColor3 = currentTheme.Main
+        confirmFrame.ZIndex = 20
+
+        local confirmText = Instance.new("TextLabel", confirmFrame)
+        confirmText.Text = "确认关闭？"
+        confirmText.Font = Enum.Font.GothamBold
+        confirmText.TextSize = 18
+        confirmText.TextColor3 = currentTheme.Text
+        confirmText.Size = UDim2.new(1, 0, 0.5, 0)
+        confirmText.BackgroundTransparency = 1
+
+        local yesButton = Instance.new("TextButton", confirmFrame)
+        yesButton.Text = "是"
+        yesButton.Font = Enum.Font.GothamBold
+        yesButton.TextSize = 14
+        yesButton.TextColor3 = currentTheme.Text
+        yesButton.Size = UDim2.new(0.4, 0, 0.4, 0)
+        yesButton.Position = UDim2.new(0.05, 0, 0.5, 0)
+        yesButton.BackgroundColor3 = currentTheme.Secondary
+
+        local noButton = Instance.new("TextButton", confirmFrame)
+        noButton.Text = "否"
+        noButton.Font = Enum.Font.GothamBold
+        noButton.TextSize = 14
+        noButton.TextColor3 = currentTheme.Text
+        noButton.Size = UDim2.new(0.4, 0, 0.4, 0)
+        noButton.Position = UDim2.new(0.55, 0, 0.5, 0)
+        noButton.BackgroundColor3 = currentTheme.Secondary
+
+        yesButton.MouseButton1Click:Connect(function()
+            mainFrame:Destroy()
+            restoreButton:Destroy()
+            confirmFrame:Destroy()
+            arrayListFrame:Destroy()
+            for _, toggle in pairs(activeQuickToggles) do
+                toggle.Destroy()
+            end
+        end)
+
+        noButton.MouseButton1Click:Connect(function()
+            confirmFrame:Destroy()
+        end)
+    end)
+
+    local tabBar = Instance.new("Frame", mainFrame)
+    tabBar.Size = UDim2.new(1, -20, 0.08, 0)
+    tabBar.Position = UDim2.new(0, 10, 0.1, 5)
+    tabBar.BackgroundTransparency = 1
+
+    local tabLayout = Instance.new("UIListLayout", tabBar)
+    tabLayout.FillDirection = Enum.FillDirection.Horizontal
+    tabLayout.Padding = UDim.new(0, 5)
+
+    local contentFrame = Instance.new("ScrollingFrame", mainFrame)
+    contentFrame.Size = UDim2.new(1, -20, 0.8, -10)
+    contentFrame.Position = UDim2.new(0, 10, 0.2, 5)
+    contentFrame.BackgroundTransparency = 1
+    contentFrame.ScrollBarThickness = 4
+    contentFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+    local contentContainer = Instance.new("Frame", contentFrame)
+    contentContainer.Size = UDim2.new(1, 0, 0, 0)
+    contentContainer.AutomaticSize = Enum.AutomaticSize.Y
+    contentContainer.BackgroundTransparency = 1
+
+    local mainLayout = Instance.new("UIListLayout", contentContainer)
+    mainLayout.Padding = UDim.new(0, 10)
+    mainLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+    function SansHub:AddTab(tabName)
+        local tab = {
+            Button = Instance.new("TextButton", tabBar),
+            Content = Instance.new("Frame", contentContainer)
+        }
+        tab.Button.Text = tabName
+        tab.Button.Font = Enum.Font.GothamMedium
+        tab.Button.TextSize = 14
+        tab.Button.Size = UDim2.new(0.2, 0, 1, 0)
+        tab.Button.BackgroundColor3 = currentTheme.Secondary
+        tab.Content.Size = UDim2.new(1, 0, 0, 0)
+        tab.Content.AutomaticSize = Enum.AutomaticSize.Y
+        tab.Content.BackgroundTransparency = 1
+        tab.Content.Visible = false
+        local contentLayout = Instance.new("UIListLayout", tab.Content)
+        contentLayout.Padding = UDim.new(0, 5)
+        contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        tab.Button.MouseButton1Click:Connect(function()
+            for _, t in pairs(SansHub.Tabs) do
+                t.Content.Visible = false
+                t.Button.BackgroundColor3 = currentTheme.Secondary
+            end
+            tab.Content.Visible = true
+            tab.Button.BackgroundColor3 = currentTheme.Main
+            contentFrame.CanvasPosition = Vector2.new(0,0)
+        end)
+        if #SansHub.Tabs == 0 then
+            tab.Content.Visible = true
+            tab.Button.BackgroundColor3 = currentTheme.Main
+        end
+        table.insert(SansHub.Tabs, tab)
+        return tab
+    end
+
+    function SansHub:AddToggle(tab, config)
+        local toggleFrame = Instance.new("Frame", tab.Content)
+        toggleFrame.Size = UDim2.new(1, 0, 0, 35)
+        toggleFrame.BackgroundTransparency = 1
+        toggleFrame.LayoutOrder = #tab.Content:GetChildren()
+        local toggleButton = Instance.new("TextButton", toggleFrame)
+        toggleButton.Text = "   "..config.Name
+        toggleButton.Font = Enum.Font.GothamMedium
+        toggleButton.TextSize = 14
+        toggleButton.TextXAlignment = Enum.TextXAlignment.Left
+        toggleButton.Size = UDim2.new(1, 0, 1, 0)
+        toggleButton.BackgroundColor3 = currentTheme.Secondary
+        toggleButton.TextColor3 = currentTheme.Text
+        local indicator = Instance.new("Frame", toggleButton)
+        indicator.Size = UDim2.new(0.08, 0, 0.6, 0)
+        indicator.Position = UDim2.new(0.88, 0, 0.2, 0)
+        indicator.BackgroundColor3 = currentTheme.Accent
+        indicator.Visible = false
+        local quickBtn = Instance.new("TextButton", toggleButton)
+        quickBtn.Text = "+"
+        quickBtn.TextColor3 = currentTheme.Accent
+        quickBtn.Size = UDim2.new(0.1, 0, 0.6, 0)
+        quickBtn.Position = UDim2.new(0.75, 0, 0.2, 0)
+        quickBtn.BackgroundTransparency = 1
+        local isEnabled = false
+        local function updateState(state)
+            isEnabled = state
+            indicator.Visible = state
+            if state then
+                arraylist.Create(config.Name)
+            else
+                arraylist.Remove(config.Name)
+            end
+            config.Callback(state)
+            if activeQuickToggles[config.Name] then
+                activeQuickToggles[config.Name].Button:FindFirstChildOfClass("Frame").Visible = state
+            end
+        end
+        toggleButton.MouseButton1Click:Connect(function()
+            updateState(not isEnabled)
+        end)
+        quickBtn.MouseButton1Click:Connect(function()
+            if quickBtn.Text == "+" then
+                quickBtn.Text = "-"
+                createQuickToggle({
+                    Name = config.Name,
+                    GetState = function() return isEnabled end,
+                    Callback = function(state) updateState(state) end
+                }, quickBtn)
+            else
+                quickBtn.Text = "+"
+                if activeQuickToggles[config.Name] then
+                    activeQuickToggles[config.Name].Destroy()
+                end
+            end
+        end)
+        return { Update = updateState }
+    end
+
+    function SansHub:AddSlider(tab, config)
+        local sliderFrame = Instance.new("Frame", tab.Content)
+        if config.Name then
+            local nameLabel = Instance.new("TextLabel", sliderFrame)
+            nameLabel.Text = config.Name
+            nameLabel.Font = Enum.Font.GothamBold
+            nameLabel.TextSize = 14
+            nameLabel.TextColor3 = currentTheme.Text
+            nameLabel.Size = UDim2.new(1, 0, 0, 20)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.Position = UDim2.new(0, 0, 0, 0)
+        end
+        sliderFrame.Size = UDim2.new(1, 0, 0, 60)
+        sliderFrame.BackgroundTransparency = 1
+        sliderFrame.LayoutOrder = #tab.Content:GetChildren()
+        local sliderBar = Instance.new("Frame", sliderFrame)
+        sliderBar.Size = UDim2.new(0.7, 0, 0.25, 0)
+        sliderBar.Position = UDim2.new(0, 0, 0.5, 0)
+        sliderBar.BackgroundColor3 = currentTheme.Secondary
+        sliderBar.AnchorPoint = Vector2.new(0, 0.5)
+        Instance.new("UICorner", sliderBar).CornerRadius = UDim.new(1, 0)
+        local sliderHead = Instance.new("TextButton", sliderBar)
+        sliderHead.Size = UDim2.new(0, 24, 2.5, 0)
+        sliderHead.AnchorPoint = Vector2.new(0.5, 0.5)
+        sliderHead.Position = UDim2.new(0, 0, 0.5, 0)
+        sliderHead.BackgroundColor3 = currentTheme.Accent
+        sliderHead.AutoButtonColor = false
+        sliderHead.Text = tostring(config.Default or config.Min)
+        sliderHead.TextColor3 = currentTheme.Text
+        sliderHead.TextSize = 12
+        sliderHead.Font = Enum.Font.GothamBold
+        Instance.new("UICorner", sliderHead).CornerRadius = UDim.new(1, 0)
+        local valueText = Instance.new("TextLabel", sliderFrame)
+        valueText.Text = config.Default and config.Default.."/"..config.Max or config.Min.."/"..config.Max
+        valueText.Font = Enum.Font.GothamBold
+        valueText.TextSize = 14
+        valueText.TextColor3 = currentTheme.Text
+        valueText.Size = UDim2.new(0.2, 0, 1, 0)
+        valueText.Position = UDim2.new(0.75, 0, 0, 0)
+        valueText.BackgroundTransparency = 1
+        local inputBox = Instance.new("TextBox", sliderFrame)
+        inputBox.Size = UDim2.new(0.2, 0, 0.5, 0)
+        inputBox.Position = UDim2.new(0.75, 0, 0.25, 0)
+        inputBox.BackgroundColor3 = currentTheme.Secondary
+        inputBox.TextColor3 = currentTheme.Text
+        inputBox.Font = Enum.Font.GothamBold
+        inputBox.TextSize = 14
+        inputBox.PlaceholderText = "输入...."
+        inputBox.Text = ""
+        Instance.new("UICorner", inputBox).CornerRadius = UDim.new(0.2, 0)
+        local currentValue = config.Default or config.Min
+        local isDragging = false
+        local function updateSlider(value)
+            value = math.clamp(math.floor(value), config.Min, config.Max)
+            currentValue = value
+            local ratio = (value - config.Min) / (config.Max - config.Min)
+            sliderHead.Position = UDim2.new(ratio, 0, 0.5, 0)
+            sliderHead.Text = tostring(value)
+            valueText.Text = value.."/"..config.Max
+            if config.Callback then
+                config.Callback(value)
+            end
+        end
+        local function handleInput(input)
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                local absoluteX = sliderBar.AbsolutePosition.X
+                local barWidth = sliderBar.AbsoluteSize.X
+                local clickX = input.Position.X - absoluteX
+                local ratio = math.clamp(clickX / barWidth, 0, 1)
+                updateSlider(config.Min + (config.Max - config.Min) * ratio)
+            end
+        end
+        sliderHead.InputBegan:Connect(function(input)
+            isDragging = true
+            handleInput(input)
+        end)
+        sliderBar.InputBegan:Connect(handleInput)
+        UserInputService.InputChanged:Connect(function(input)
+            if isDragging then
+                handleInput(input)
+            end
+        end)
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                isDragging = false
+            end
+        end)
+        inputBox.FocusLost:Connect(function()
+            local num = tonumber(inputBox.Text)
+            if num then
+                updateSlider(num)
+            end
+            inputBox.Text = ""
+        end)
+        updateSlider(currentValue)
+    end
+
+    local longPressDuration = 2
+    local longPressTimer = 0
+    local isLongPressing = false
+    local fillFrame = Instance.new("Frame", restoreButton)
+    fillFrame.Size = UDim2.new(0, 0, 1, 0)
+    fillFrame.BackgroundColor3 = currentTheme.Accent
+    fillFrame.BackgroundTransparency = 0.7
+    fillFrame.BorderSizePixel = 0
+    fillFrame.ZIndex = -1
+
+    local isDragging = false
+    local dragStartPosition = nil
+    local dragStartMousePosition = nil
+
+    restoreButton.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            isLongPressing = true
+            longPressTimer = 0
+            while isLongPressing do
+                longPressTimer = longPressTimer + task.wait()
+                fillFrame.Size = UDim2.new(math.clamp(longPressTimer / longPressDuration, 0, 1), 0, 1, 0)
+                if longPressTimer >= longPressDuration then
+                    isDragging = true
+                    dragStartPosition = restoreButton.Position
+                    dragStartMousePosition = input.Position
+                    break
+                end
+            end
+        end
+    end)
+
+    restoreButton.InputChanged:Connect(function(input)
+        if isDragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+            local delta = input.Position - dragStartMousePosition
+            restoreButton.Position = dragStartPosition + UDim2.new(0, delta.X, 0, delta.Y)
+        end
+    end)
+
+    restoreButton.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            isLongPressing = false
+            isDragging = false
+            fillFrame.Size = UDim2.new(0, 0, 1, 0)
+        end
+    end)
+
+    return SansHub
+end
+
+return SansHubLib
